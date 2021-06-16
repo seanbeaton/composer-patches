@@ -110,6 +110,10 @@ class Patches implements PluginInterface, EventSubscriberInterface, Capable
                 'type' => 'list',
                 'default' => ['-p1', '-p0', '-p2', '-p4']
             ],
+            'ignore-whitespace' => [
+                'type' => 'bool',
+                'default' => false
+            ],
             'patches-file' => [
                 'type' => 'string',
                 'default' => '',
@@ -403,18 +407,29 @@ class Patches implements PluginInterface, EventSubscriberInterface, Capable
         // p0 is next likely. p2 is extremely unlikely, but for some special cases,
         // it might be useful. p4 is useful for Magento 2 patches
         $patch_levels = $this->getConfig('patch-levels');
+        $ignore_whitespace = $this->getConfig('ignore-whitespace');
+
         foreach ($patch_levels as $patch_level) {
             if ($this->io->isVerbose()) {
                 $comment = 'Testing ability to patch with git apply.';
                 $comment .= ' This command may produce errors that can be safely ignored.';
                 $this->io->write('<comment>' . $comment . '</comment>');
             }
-            $checked = $this->executeCommand(
-                'git -C %s apply --check -v %s %s',
-                $install_path,
-                $patch_level,
-                $filename
-            );
+            if ($ignore_whitespace) {
+                $checked = $this->executeCommand(
+                    'git -C %s apply --check -v --ignore-whitespace %s %s',
+                    $install_path,
+                    $patch_level,
+                    $filename
+                );
+            } else {
+                $checked = $this->executeCommand(
+                    'git -C %s apply --check -v %s %s',
+                    $install_path,
+                    $patch_level,
+                    $filename
+                );
+            }
             $output = $this->executor->getErrorOutput();
             if (substr($output, 0, 7) === 'Skipped') {
                 // Git will indicate success but silently skip patches in some scenarios.
@@ -424,12 +439,21 @@ class Patches implements PluginInterface, EventSubscriberInterface, Capable
             }
             if ($checked) {
                 // Apply the first successful style.
-                $patched = $this->executeCommand(
-                    'git -C %s apply %s %s',
-                    $install_path,
-                    $patch_level,
-                    $filename
-                );
+                if ($ignore_whitespace) {
+                    $patched = $this->executeCommand(
+                        'git -C %s apply --ignore-whitespace %s %s',
+                        $install_path,
+                        $patch_level,
+                        $filename
+                    );
+                } else {
+                    $patched = $this->executeCommand(
+                        'git -C %s apply %s %s',
+                        $install_path,
+                        $patch_level,
+                        $filename
+                    );
+                }
                 break;
             }
         }
@@ -440,13 +464,22 @@ class Patches implements PluginInterface, EventSubscriberInterface, Capable
             foreach ($patch_levels as $patch_level) {
                 // --no-backup-if-mismatch here is a hack that fixes some
                 // differences between how patch works on windows and unix.
-                if ($patched = $this->executeCommand(
-                    "patch %s --no-backup-if-mismatch -d %s < %s",
-                    $patch_level,
-                    $install_path,
-                    $filename
-                )
-                ) {
+                if ($ignore_whitespace) {
+                    $patched = $this->executeCommand(
+                        "patch %s --no-backup-if-mismatch -d %s < %s",
+                        $patch_level,
+                        $install_path,
+                        $filename
+                    );
+                } else {
+                    $patched = $this->executeCommand(
+                        "patch %s --no-backup-if-mismatch -d %s < %s",
+                        $patch_level,
+                        $install_path,
+                        $filename
+                    );
+                }
+                if ($patched) {
                     break;
                 }
             }
